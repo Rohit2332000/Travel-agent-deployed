@@ -1,68 +1,74 @@
-import sqlite3
-import json
-from datetime import datetime
+from pydantic import BaseModel
+from typing import Optional, List
+from langchain_groq import ChatGroq
+from dotenv import load_dotenv
+import os
 
-DB_NAME = "travel_planner.db"
+load_dotenv()
 
-
-def get_connection():
-    return sqlite3.connect(DB_NAME, check_same_thread=False)
-
-
-def init_db():
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS travel_history (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp TEXT,
-        travel_data TEXT,
-        itinerary TEXT
-    )
-    """)
-
-    conn.commit()
-    conn.close()
+llm = ChatGroq(
+    model="qwen/qwen3-32b",
+    temperature=0,
+    api_key=os.getenv("GROQ_API_KEY")
+)
 
 
-def save_trip(travel_data: dict, itinerary: str):
-    conn = get_connection()
-    cur = conn.cursor()
-
-    cur.execute("""
-        INSERT INTO travel_history (timestamp, travel_data, itinerary)
-        VALUES (?, ?, ?)
-    """, (
-        datetime.now().isoformat(),
-        json.dumps(travel_data),
-        itinerary
-    ))
-
-    conn.commit()
-    conn.close()
+class UserInput(BaseModel):
+    source: Optional[str] = None
+    destination: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    budget: Optional[str] = None
+    trip_type: Optional[str] = None
+    interests: Optional[List[str]] = None
 
 
-def load_trips(limit=20):
-    conn = get_connection()
-    cur = conn.cursor()
+extractor_llm = llm.with_structured_output(UserInput)
 
-    cur.execute("""
-        SELECT id, timestamp, travel_data, itinerary
-        FROM travel_history
-        ORDER BY id DESC
-        LIMIT ?
-    """, (limit,))
 
-    rows = cur.fetchall()
-    conn.close()
+def extract_trip_info(message: str):
 
-    return [
-        {
-            "id": r[0],
-            "timestamp": r[1],
-            "travel_data": json.loads(r[2]),
-            "itinerary": r[3]
-        }
-        for r in rows
-    ]
+    prompt = f"""
+Extract travel information from user text.
+
+User message:
+{message}
+
+Return structured data.
+"""
+
+    return extractor_llm.invoke(prompt)
+
+
+REQUIRED_FIELDS = [
+    "source",
+    "destination",
+    "start_date",
+    "end_date",
+    "budget",
+    "trip_type",
+    "interests"
+]
+
+
+def get_missing_fields(data):
+
+    missing = []
+
+    for field in REQUIRED_FIELDS:
+
+        if not data.get(field):
+            missing.append(field)
+
+    return missing
+
+
+QUESTIONS = {
+    "source": "🌍 Where are you travelling from?",
+    "destination": "📍 Where do you want to travel?",
+    "start_date": "📅 What is your start date? (YYYY-MM-DD)",
+    "end_date": "📅 What is your end date? (YYYY-MM-DD)",
+    "budget": "💰 What is your budget? (Budget / Mid-range / Luxury)",
+    "trip_type": "👨‍👩‍👧 Trip type? (Solo / Family / Friends / Couple)",
+    "interests": "🎯 Interests? (Nature, Food, Adventure, Shopping etc.)"
+}

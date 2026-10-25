@@ -597,7 +597,7 @@ Do not return code fences.
 """
 
         response = client.chat.completions.create(
-            model="oopenai/gpt-oss-20b",
+            model="openai/gpt-oss-20b",
             temperature=0,
             messages=[
                 {
